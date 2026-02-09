@@ -1,23 +1,36 @@
-# React + Vite
+# FastAPI Tutorial Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interactive React + Vite frontend for learning FastAPI with energy-data examples.
 
-Currently, two official plugins are available:
+## Live URL
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- https://niranjanxprt.github.io/Pythonfast/
 
-## React Compiler
+## Local Development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm ci
+npm run dev
+```
 
-## Expanding the ESLint configuration
+Open: http://localhost:5173
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Production Build
 
-## GitHub Pages
+```bash
+npm run build
+npm run preview
+```
 
-This app is configured for GitHub Pages deployment from the repository root workflow.
+## Deployment Notes
 
-- Live URL: https://niranjanxprt.github.io/Pythonfast/
-- Build base path: `/Pythonfast/`
+- This app is deployed via repository workflow:
+  - `.github/workflows/deploy-fastapi-tutorial-pages.yml`
+- GitHub Pages project URL requires Vite base path:
+  - `base: "/Pythonfast/"`
+
+## Best-Practice Notes
+
+- Keep static docs/tutorial UI on Pages and backend API runtime separate.
+- Use `npm ci` in CI for deterministic installs from `package-lock.json`.
+- Use path-based workflow triggers to deploy only when frontend-related files change.
