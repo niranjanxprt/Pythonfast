@@ -8,7 +8,7 @@ def read_root():
 
 @app.get("/about")
 def about():
-    return {"app": "My First API", "version": "0.1.0"}""" 
+    return {"app": "My First API", "version": "0.1.0"}
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -69,3 +69,69 @@ def remove_panel(panel_id: int):
             removed = solar_panels.pop(i)
             return {"deleted": removed, "remaining": len(solar_panels)}
     return {"error": "Panel not found"}
+
+from fastapi import FastAPI, Path
+from enum import Enum
+
+app = FastAPI()
+
+# Basic path param — get specific meter reading
+@app.get("/meters/{meter_id}")
+def get_meter(meter_id: int):
+    return {"meter_id": meter_id, "type": "smart_meter"}
+
+# Path() adds validation — panel IDs between 1-1000
+@app.get("/panels/{panel_id}")
+def get_panel(
+    panel_id: int = Path(gt=0, le=1000, description="Solar panel ID")
+):
+    return {"panel_id": panel_id, "status": "active"}
+
+# Enum for energy sources
+class EnergySource(str, Enum):
+    solar = "solar"
+    wind = "wind"
+    hydro = "hydro"
+    grid = "grid"
+
+@app.get("/source/{source_type}")
+def get_source_data(source_type: EnergySource):
+    return {"source": source_type.value, "renewable": source_type != "grid"}"""
+
+from fastapi import FastAPI, Query
+from typing import Optional
+
+app = FastAPI()
+
+# Sample energy readings
+readings = [
+    {"timestamp": "2024-01-01 08:00", "kw": 4.5, "location": "Panel A"},
+    {"timestamp": "2024-01-01 09:00", "kw": 5.2, "location": "Panel A"},
+    {"timestamp": "2024-01-01 10:00", "kw": 6.8, "location": "Panel B"},
+]
+
+# Pagination for large datasets
+# URL: /readings?skip=0&limit=100
+@app.get("/readings")
+def get_readings(skip: int = 0, limit: int = 100):
+    return {"total": len(readings), "data": readings[skip : skip + limit]}
+
+# Filter by location (optional)
+@app.get("/readings/search")
+def search_readings(location: Optional[str] = None):
+    if location:
+        filtered = [r for r in readings if location.lower() in r["location"].lower()]
+        return {"location": location, "count": len(filtered), "data": filtered}
+    return {"data": readings}
+
+# Advanced filtering with validation
+@app.get("/readings/filter")
+def filter_readings(
+    min_kw: float = Query(default=0, ge=0, description="Minimum power in kW"),
+    max_kw: float = Query(default=100, le=100, description="Maximum power in kW"),
+    location: Optional[str] = Query(default=None, min_length=2, max_length=50),
+):
+    filtered = [r for r in readings if min_kw <= r["kw"] <= max_kw]
+    if location:
+        filtered = [r for r in filtered if location.lower() in r["location"].lower()]
+    return {"filters": {"min_kw": min_kw, "max_kw": max_kw}, "results": filtered}

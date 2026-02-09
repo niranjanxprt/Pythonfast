@@ -164,7 +164,7 @@ class EnergySource(str, Enum):
 
 @app.get("/source/{source_type}")
 def get_source_data(source_type: EnergySource):
-    return {"source": source_type.value, "renewable": source_type != "grid"}` },
+    return {"source": source_type.value, "renewable": source_type.value != "grid"}` },
       { t: "code", label: "Query Parameters — Filter Energy Data", v: `from fastapi import FastAPI, Query
 from typing import Optional
 
@@ -187,6 +187,8 @@ def get_readings(skip: int = 0, limit: int = 100):
 @app.get("/readings/search")
 def search_readings(location: Optional[str] = None):
     if location:
+        # List comprehension: [expression for item in iterable if condition]
+        # Filters readings where location contains search term (case-insensitive)
         filtered = [r for r in readings if location.lower() in r["location"].lower()]
         return {"location": location, "count": len(filtered), "data": filtered}
     return {"data": readings}
@@ -198,8 +200,11 @@ def filter_readings(
     max_kw: float = Query(default=100, le=100, description="Maximum power in kW"),
     location: Optional[str] = Query(default=None, min_length=2, max_length=50),
 ):
+    # Chained comparison: min_kw <= r["kw"] AND r["kw"] <= max_kw
+    # Python allows math-style chaining: 5 <= 7 <= 10 is True
     filtered = [r for r in readings if min_kw <= r["kw"] <= max_kw]
     if location:
+        # Filter the already-filtered list (chaining filters)
         filtered = [r for r in filtered if location.lower() in r["location"].lower()]
     return {"filters": {"min_kw": min_kw, "max_kw": max_kw}, "results": filtered}` },
       { t: "note", v: "Energy monitoring often needs date ranges, location filters, and power thresholds. Query params are perfect for this!" },
@@ -225,12 +230,16 @@ class SolarPanel(BaseModel):
     efficiency: float = Field(ge=0, le=100, description="Efficiency percentage")
     status: str = Field(default="active")
 
+    # Pydantic field validators run automatically during model instantiation
+    # @field_validator decorates a method to validate specific fields
     @field_validator("panel_id")
-    @classmethod
+    @classmethod  # Required: validators must be class methods
     def panel_id_format(cls, v):
+        # 'v' is the value being validated for the panel_id field
         if not v.startswith("PANEL-"):
+            # FastAPI catches this ValueError and returns HTTP 422 with error details
             raise ValueError("Panel ID must start with 'PANEL-'")
-        return v.upper()
+        return v.upper()  # Return the validated and normalized value
 
 # Nested models — location with GPS
 class Location(BaseModel):
@@ -324,7 +333,11 @@ class ItemOut(BaseModel):
 def list_items():
     return [
         {"id": 1, "name": "Laptop", "secret": "hidden"},
-    ]  # "secret" is stripped by ItemOut` },
+    ]  # "secret" is stripped by ItemOut
+
+# Python version note: list[ItemOut] requires Python 3.9+
+# For Python 3.8, use: from typing import List
+# response_model=List[ItemOut]` },
       { t: "note", v: "Common codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 422 Validation Error." },
     ],
   },
@@ -364,27 +377,34 @@ class FakeDB:
         self.items = ["Apple", "Banana"]
 
 def get_db():
+    # Dependencies using 'yield' have two phases:
+    # 1. BEFORE yield: Setup (runs before endpoint executes)
     db = FakeDB()
     try:
-        yield db  # FastAPI handles cleanup
+        yield db  # Endpoint receives this value as a parameter
     finally:
-        print("DB closed")
+        # 2. AFTER yield: Cleanup (runs after endpoint completes, even on errors)
+        print("DB closed")  # Close connections, release resources
 
 @app.get("/db-items")
 def get_items(db: FakeDB = Depends(get_db)):
     return {"items": db.items}
 
-# Nested: verify_key -> get_user -> require_admin
+# Nested dependencies: FastAPI resolves them in the correct order
+# Dependency chain: require_admin → get_current_user → verify_api_key
 def get_current_user(key: str = Depends(verify_api_key)):
+    # verify_api_key runs first, returns the key
     return {"username": "niranjan", "role": "admin"}
 
 def require_admin(user: dict = Depends(get_current_user)):
+    # get_current_user runs second, returns user dict
     if user["role"] != "admin":
         raise HTTPException(403, "Admin only!")
     return user
 
 @app.get("/admin")
 def admin(a: dict = Depends(require_admin)):
+    # Execution order: verify_api_key → get_current_user → require_admin → admin
     return {"welcome": a["username"]}` },
       { t: "note", v: "yield dependencies auto-cleanup (like closing DB). Dependencies can nest: A depends on B depends on C. Easy to test by overriding with app.dependency_overrides." },
     ],
@@ -486,7 +506,10 @@ from pydantic import BaseModel
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
-SECRET_KEY = "change-me-in-production"
+# ⚠️ SECURITY WARNING: Never hardcode SECRET_KEY in production!
+# Load from environment: SECRET_KEY = os.getenv("SECRET_KEY")
+# Generate strong key: python -c "import secrets; print(secrets.token_urlsafe(32))"
+SECRET_KEY = "change-me-in-production"  # Demo only!
 ALGORITHM = "HS256"
 
 pwd = CryptContext(schemes=["bcrypt"])
@@ -571,7 +594,11 @@ async def upload(file: UploadFile = File(...)):
     path = UPLOAD_DIR / file.filename
     with open(path, "wb") as f:
         shutil.copyfileobj(file.file, f)
-    return {"filename": file.filename, "size": file.size}
+    return {
+        "filename": file.filename,
+        "size": file.size or 0,  # Handle None for streaming uploads
+        "content_type": file.content_type
+    }
 
 @app.post("/upload-many")
 async def upload_many(title: str = Form(...), files: list[UploadFile] = File(...)):
@@ -594,12 +621,17 @@ app = FastAPI()
 
 @app.websocket("/ws/echo")
 async def echo(ws: WebSocket):
-    await ws.accept()
+    # async def: This endpoint handles WebSocket connections without blocking
+    await ws.accept()  # Async: Wait for connection handshake to complete
     try:
         while True:
+            # await ws.receive_text(): Pause here until client sends data (non-blocking!)
+            # Meanwhile, OTHER endpoints (GET /items, POST /users) continue running
+            # This is the KEY benefit of async Python - handle thousands of connections
             data = await ws.receive_text()
-            await ws.send_text(f"Echo: {data}")
+            await ws.send_text(f"Echo: {data}")  # Send response back to client
     except WebSocketDisconnect:
+        # Exception raised when client closes connection
         print("Client left")
 
 class ChatManager:
@@ -713,10 +745,12 @@ def hourly_average():
       { t: "code", label: "Advanced analytics — Time series & filters", v: `@app.get("/analytics/peak-hours")
 def peak_hours():
     """Find peak generation and consumption hours"""
-    energy_df["total_generation"] = energy_df["solar_kw"] + energy_df["wind_kw"]
+    # IMPORTANT: Create a copy to avoid mutating global state in concurrent requests
+    df = energy_df.copy()
+    df["total_generation"] = df["solar_kw"] + df["wind_kw"]
 
-    peak_gen = energy_df.loc[energy_df["total_generation"].idxmax()]
-    peak_consumption = energy_df.loc[energy_df["consumption_kw"].idxmax()]
+    peak_gen = df.loc[df["total_generation"].idxmax()]
+    peak_consumption = df.loc[df["consumption_kw"].idxmax()]
 
     return {
         "peak_generation": {
@@ -734,9 +768,12 @@ def peak_hours():
 @app.get("/analytics/filter")
 def filter_data(min_solar: float = 0, min_wind: float = 0):
     """Filter data by minimum generation thresholds"""
+    # Boolean indexing: Create True/False mask for filtering rows
+    # Use & (bitwise AND) not 'and' - pandas needs element-wise comparison
+    # Parentheses required due to operator precedence
     filtered = energy_df[
         (energy_df["solar_kw"] >= min_solar) & (energy_df["wind_kw"] >= min_wind)
-    ]
+    ].copy()  # copy() prevents unintended mutations in concurrent requests
     return {
         "filters": {"min_solar_kw": min_solar, "min_wind_kw": min_wind},
         "matching_records": len(filtered),
@@ -746,21 +783,30 @@ def filter_data(min_solar: float = 0, min_wind: float = 0):
 @app.get("/analytics/correlation")
 def correlation_analysis():
     """Correlation between energy sources and consumption"""
+    # Correlation = how strongly two variables move together
+    # +1 = perfect positive (both increase together)
+    #  0 = no relationship
+    # -1 = perfect negative (one increases, other decreases)
+    # Energy example: solar/wind might have -0.5 correlation with consumption
     corr_matrix = energy_df[["solar_kw", "wind_kw", "consumption_kw"]].corr()
     return corr_matrix.to_dict()
 
 @app.get("/analytics/numpy-stats")
 def numpy_statistics():
     """Advanced stats using NumPy"""
-    solar = energy_df["solar_kw"].values
+    # Convert pandas Series to NumPy arrays for numerical operations
+    # .values extracts underlying NumPy array from pandas Series wrapper
+    solar = energy_df["solar_kw"].values  # Returns np.ndarray
     wind = energy_df["wind_kw"].values
 
     return {
         "solar": {
-            "mean": float(np.mean(solar)),
-            "median": float(np.median(solar)),
-            "std_dev": float(np.std(solar)),
-            "percentile_90": float(np.percentile(solar, 90)),
+            # NumPy types (np.float64) aren't JSON serializable
+            # Always wrap with float(), int(), or str() before returning
+            "mean": float(np.mean(solar)),  # Average power output
+            "median": float(np.median(solar)),  # Middle value (robust to outliers)
+            "std_dev": float(np.std(solar)),  # Variation (high = unpredictable)
+            "percentile_90": float(np.percentile(solar, 90)),  # 90% of time below this
         },
         "wind": {
             "mean": float(np.mean(wind)),
@@ -827,6 +873,258 @@ def test_websocket():
       { t: "note", v: "Run: pytest -v (verbose), pytest --cov (coverage), pytest -x (stop on first fail). Use dependency_overrides to swap real DBs for test DBs." },
     ],
   },
+  {
+    id: 14, title: "Best Practices & Production Tips",
+    content: [
+      { t: "p", v: "Building production-ready FastAPI applications requires more than working code. This chapter covers performance optimization, security best practices, testing strategies, and common pitfalls from real-world energy API deployments." },
+      { t: "code", label: "Performance: Install uvloop & httptools", v: `# Install high-performance event loop and HTTP parser
+# uvloop: 2-4x faster than asyncio's default event loop
+# httptools: Fast HTTP request parser written in C
+
+# With pip
+pip install uvloop httptools
+
+# With uv (faster)
+uv pip install uvloop httptools
+
+# Note: uvloop doesn't support Windows
+# For cross-platform projects, use environment markers:
+# In requirements.txt:
+# uvloop; sys_platform != 'win32'
+# httptools` },
+      { t: "code", label: "Performance: Always Prefer Async", v: `from fastapi import FastAPI
+
+app = FastAPI()
+
+# ❌ BAD: Non-async functions run in thread pool (max 40 threads by default)
+@app.get("/slow")
+def blocking_endpoint():
+    # This blocks a thread while waiting!
+    result = expensive_computation()
+    return {"result": result}
+
+# ✅ GOOD: Async functions run in event loop (thousands of concurrent requests)
+@app.get("/fast")
+async def async_endpoint():
+    # This doesn't block - other requests continue processing
+    result = await async_expensive_computation()
+    return {"result": result}
+
+# If you MUST use sync code (legacy libraries), increase thread pool:
+from contextlib import asynccontextmanager
+import anyio
+
+@asynccontextmanager
+async def lifespan(app):
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = 100  # Increase from default 40
+    yield
+
+app = FastAPI(lifespan=lifespan)` },
+      { t: "code", label: "Lifespan State Management", v: `from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from typing import TypedDict
+import httpx
+
+# Modern approach: Use lifespan for startup/shutdown resources
+class State(TypedDict):
+    http_client: httpx.AsyncClient
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Create resources once when app starts
+    async_client = httpx.AsyncClient()
+    print("App started, client created")
+
+    # Yield makes resources available during app lifetime
+    yield {"http_client": async_client}
+
+    # Shutdown: Cleanup resources when app stops
+    await async_client.aclose()
+    print("App stopped, client closed")
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/fetch-data")
+async def fetch_energy_data(request: Request):
+    # Access lifespan state via request.state
+    client = request.state.http_client
+    response = await client.get("https://api.example.com/energy")
+    return response.json()` },
+      { t: "code", label: "Security: Environment Variables for Secrets", v: `import os
+from functools import lru_cache
+from pydantic_settings import BaseSettings
+
+# Use pydantic-settings for type-safe configuration
+class Settings(BaseSettings):
+    secret_key: str  # Loaded from SECRET_KEY env var
+    database_url: str  # Loaded from DATABASE_URL env var
+    api_key: str  # Loaded from API_KEY env var
+    debug: bool = False
+
+    class Config:
+        env_file = ".env"  # Load from .env file in development
+        env_file_encoding = 'utf-8'
+
+# Cache settings so they're loaded once
+@lru_cache
+def get_settings():
+    return Settings()
+
+# Generate a strong secret key:
+# python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Usage in JWT or other security contexts:
+settings = get_settings()
+SECRET_KEY = settings.secret_key
+DATABASE_URL = settings.database_url
+
+# Never hardcode secrets in production!` },
+      { t: "code", label: "Security: Input Validation & Rate Limiting", v: `from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+# Rate limiting protects against abuse
+limiter = Limiter(key_func=get_remote_address)
+app = FastAPI()
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Strict input validation prevents injection attacks
+class EnergyReading(BaseModel):
+    meter_id: str = Field(min_length=3, max_length=50, pattern=r"^[A-Z0-9-]+$")
+    power_kw: float = Field(gt=0, le=1000)  # Reasonable limits
+    timestamp: str
+
+    @field_validator("meter_id")
+    @classmethod
+    def validate_meter_id(cls, v):
+        # Custom validation for business rules
+        if not v.startswith("METER-"):
+            raise ValueError("Invalid meter ID format")
+        return v
+
+@app.post("/readings")
+@limiter.limit("10/minute")  # Max 10 requests per minute per IP
+async def submit_reading(request: Request, reading: EnergyReading):
+    # Pydantic validates everything before this line runs
+    return {"status": "accepted", "meter_id": reading.meter_id}` },
+      { t: "code", label: "WebSockets: Modern Pattern with async for", v: `from fastapi import FastAPI, WebSocket
+
+app = FastAPI()
+
+# ❌ OLD: Manual loop and exception handling
+@app.websocket("/ws/old")
+async def old_pattern(ws: WebSocket):
+    await ws.accept()
+    try:
+        while True:
+            data = await ws.receive_text()
+            await ws.send_text(f"Echo: {data}")
+    except WebSocketDisconnect:
+        pass  # Manual cleanup
+
+# ✅ NEW: Use async iterator (automatic exception handling)
+@app.websocket("/ws/new")
+async def new_pattern(ws: WebSocket):
+    await ws.accept()
+    # async for automatically handles WebSocketDisconnect
+    async for data in ws.iter_text():
+        await ws.send_text(f"Echo: {data}")
+    # Connection closed automatically when iterator ends
+
+# Production example: Stream real-time energy data
+@app.websocket("/ws/energy-stream/{device_id}")
+async def stream_energy(ws: WebSocket, device_id: str):
+    await ws.accept()
+    async for message in ws.iter_text():
+        if message == "start":
+            # Stream energy data from database
+            readings = await get_device_readings(device_id)
+            for reading in readings:
+                await ws.send_json(reading)
+        elif message == "stop":
+            break` },
+      { t: "code", label: "Testing: Modern Async Testing with AsyncClient", v: `import pytest
+from httpx import AsyncClient, ASGITransport
+from main import app
+
+# Use AsyncClient for testing async endpoints
+@pytest.mark.anyio
+async def test_energy_endpoint():
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/data/summary")
+        assert response.status_code == 200
+        data = response.json()
+        assert "solar_kw" in data
+
+# Test lifespan events with asgi-lifespan
+from asgi_lifespan import LifespanManager
+
+@pytest.mark.anyio
+async def test_with_lifespan():
+    async with LifespanManager(app):
+        # Lifespan events (startup/shutdown) run properly
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
+            response = await client.get("/")
+            assert response.status_code == 200
+
+# Override dependencies for testing
+from main import get_db, get_current_user
+
+def fake_db():
+    return {"items": ["test-item-1"]}
+
+async def fake_user():
+    return {"username": "test_user", "role": "admin"}
+
+@pytest.mark.anyio
+async def test_with_mocked_deps():
+    # Swap real dependencies for test doubles
+    app.dependency_overrides[get_db] = fake_db
+    app.dependency_overrides[get_current_user] = fake_user
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test"
+    ) as client:
+        response = await client.get("/admin/items")
+        assert response.status_code == 200
+
+    # Clean up after test
+    app.dependency_overrides.clear()` },
+      { t: "note", v: "⚠️ Common FastAPI Pitfalls & Solutions:\\n\\n❌ Using sync functions → ✅ Always prefer async/await\\n❌ Hardcoded secrets → ✅ Use environment variables\\n❌ No rate limiting → ✅ Add slowapi or similar\\n❌ Mutating global state → ✅ Use .copy() for DataFrames, immutable patterns\\n❌ BaseHTTPMiddleware → ✅ Use pure ASGI middleware for production\\n❌ Not handling file.size=None → ✅ Use 'file.size or 0'\\n❌ Returning NumPy types → ✅ Convert with float(), int(), str()\\n❌ Using TestClient for async → ✅ Use httpx.AsyncClient with ASGITransport" },
+      { t: "code", label: "Debugging: AsyncIO Debug Mode", v: `# Enable asyncio debug mode to find blocking operations
+# Run your app with:
+# PYTHONASYNCIODDEBUG=1 uvicorn main:app --reload
+
+# This warns when:
+# - A task takes >100ms (blocking the event loop)
+# - Coroutines aren't awaited
+# - Resources aren't cleaned up
+
+# Example warning output:
+# "Executing <Task> took 0.352 seconds"  # Blocking code detected!
+
+# Monitor thread pool usage in your code:
+import anyio
+
+async def check_thread_usage():
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    print(f"Threads in use: {limiter.borrowed_tokens}")
+    print(f"Total threads: {limiter.total_tokens}")
+    # If borrowed_tokens is often at max, you need more async code!` },
+      { t: "note", v: "✅ Production Checklist:\\n\\n✓ Install uvloop + httptools for performance\\n✓ Use async/await everywhere possible\\n✓ Store all secrets in environment variables\\n✓ Add rate limiting to public endpoints\\n✓ Use lifespan state for DB pools and HTTP clients\\n✓ Test with AsyncClient (not TestClient)\\n✓ Enable asyncio debug mode during development\\n✓ Avoid mutating global state in endpoints\\n✓ Convert NumPy/pandas types before JSON responses\\n✓ Use pure ASGI middleware for production\\n\\nYour energy API is now production-ready! 🚀" },
+    ],
+  },
 ];
 
 const quizzes = {
@@ -843,6 +1141,7 @@ const quizzes = {
   11: { q: "What accepts a WebSocket?", o: ["ws.open()", "ws.connect()", "await ws.accept()", "ws.start()"], a: 2 },
   12: { q: "Convert pandas DataFrame to JSON?", o: [".to_json()", ".to_dict(orient='records')", ".serialize()", ".export()"], a: 1 },
   13: { q: "Override deps in tests how?", o: ["mock.patch()", "app.dependency_overrides[dep] = fake", "@override", "pytest.fixture()"], a: 1 },
+  14: { q: "What's the preferred way to manage app startup/shutdown resources?", o: ["app.state", "lifespan context manager", "global variables", "@app.on_event"], a: 1 },
 };
 
 function Quiz({ id }) {
@@ -911,6 +1210,7 @@ export default function App() {
   const [ch, setCh] = useState(0);
   const [nav, setNav] = useState(true);
   const [isDark, setIsDark] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
   const mainRef = useRef(null);
   useEffect(() => { mainRef.current?.scrollTo({ top: 0, behavior: "smooth" }); }, [ch]);
 
@@ -1000,15 +1300,54 @@ export default function App() {
                   padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg,
                   color: ch === 0 ? T.text3 : T.text2, cursor: ch === 0 ? "default" : "pointer", fontSize: 13,
                 }}>← Previous</button>
-                <button onClick={() => setCh(Math.min(CH.length - 1, ch + 1))} disabled={ch === CH.length - 1} style={{
-                  padding: "8px 18px", borderRadius: 6, border: "none",
-                  background: ch === CH.length - 1 ? T.border : T.accent, color: "#fff",
-                  cursor: ch === CH.length - 1 ? "default" : "pointer", fontSize: 13,
-                }}>{ch === CH.length - 1 ? "Done!" : "Next →"}</button>
+                <button
+                  onClick={() => ch === CH.length - 1 ? setShowCompletion(true) : setCh(ch + 1)}
+                  style={{
+                    padding: "8px 18px", borderRadius: 6, border: "none",
+                    background: T.accent, color: "#fff",
+                    cursor: "pointer", fontSize: 13,
+                  }}>{ch === CH.length - 1 ? "🎉 Done!" : "Next →"}</button>
               </div>
             </div>
           </main>
         </div>
+
+        {/* Completion Modal */}
+        {showCompletion && (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }} onClick={() => setShowCompletion(false)}>
+            <div style={{
+              background: T.bg, border: `1px solid ${T.border}`, borderRadius: 12,
+              padding: "32px 40px", maxWidth: 500, textAlign: "center",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 12, color: T.text }}>
+                Congratulations!
+              </h2>
+              <p style={{ fontSize: 16, lineHeight: 1.6, marginBottom: 24, color: T.text2 }}>
+                You've completed the FastAPI Energy Tutorial! You now know how to build modern APIs
+                with FastAPI, Pydantic, pandas, numpy, WebSockets, JWT auth, and more.
+              </p>
+              <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                <button onClick={() => { setShowCompletion(false); setCh(0); }} style={{
+                  padding: "10px 20px", borderRadius: 6, border: `1px solid ${T.border}`,
+                  background: T.bg, color: T.text2, cursor: "pointer", fontSize: 14,
+                }}>
+                  Restart Tutorial
+                </button>
+                <button onClick={() => setShowCompletion(false)} style={{
+                  padding: "10px 20px", borderRadius: 6, border: "none",
+                  background: T.accent, color: "#fff", cursor: "pointer", fontSize: 14, fontWeight: 600,
+                }}>
+                  Continue Exploring
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ThemeCtx.Provider>
   );
