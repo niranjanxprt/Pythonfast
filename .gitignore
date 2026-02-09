@@ -1,0 +1,61 @@
+# ------------------------------
+# Global OS / editor noise
+# ------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Allow checked-in workspace recommendations, ignore other VS Code state.
+.vscode/*
+!.vscode/extensions.json
+**/.vscode/*
+!**/.vscode/extensions.json
+**/.idea/
+
+# ------------------------------
+# Python / FastAPI
+# ------------------------------
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/.venv/
+**/venv/
+**/env/
+**/.env
+**/.env.*
+!**/.env.example
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pyright/
+**/.coverage
+**/htmlcov/
+**/*.sqlite3
+
+# ------------------------------
+# Node / React
+# ------------------------------
+**/node_modules/
+**/dist/
+**/dist-ssr/
+**/build/
+**/.next/
+**/.nuxt/
+**/.svelte-kit/
+**/.vite/
+**/.vite-temp/
+**/coverage/
+**/*.tsbuildinfo
+
+# Package manager / tooling logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local app config files
+**/*.local
